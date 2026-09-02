@@ -312,6 +312,182 @@ func (r *systemTimezoneResource) ImportState(ctx context.Context, req resource.I
 }
 
 // ---------------------------------------------------------------------------
+// pfsense_services_dns_resolver_settings (singleton)
+// ---------------------------------------------------------------------------
+
+type servicesDNSResolverSettingsResource struct{ client *client.Client }
+
+var _ resource.Resource = (*servicesDNSResolverSettingsResource)(nil)
+var _ resource.ResourceWithConfigure = (*servicesDNSResolverSettingsResource)(nil)
+var _ resource.ResourceWithImportState = (*servicesDNSResolverSettingsResource)(nil)
+
+const servicesDNSResolverSettingsPath = "/api/v2/services/dns_resolver/settings"
+
+type servicesDNSResolverSettingsModel struct {
+	ID                        types.String `tfsdk:"id"`
+	Enable                    types.Bool   `tfsdk:"enable"`
+	Port                      types.String `tfsdk:"port"`
+	EnableSSL                 types.Bool   `tfsdk:"enablessl"`
+	SSLCertRef                types.String `tfsdk:"sslcertref"`
+	TLSPort                   types.String `tfsdk:"tlsport"`
+	ActiveInterface           types.List   `tfsdk:"active_interface"`
+	OutgoingInterface         types.List   `tfsdk:"outgoing_interface"`
+	StrictOut                 types.Bool   `tfsdk:"strictout"`
+	SystemDomainLocalZoneType types.String `tfsdk:"system_domain_local_zone_type"`
+	DNSSEC                    types.Bool   `tfsdk:"dnssec"`
+	Python                    types.Bool   `tfsdk:"python"`
+	PythonOrder               types.String `tfsdk:"python_order"`
+	PythonScript              types.String `tfsdk:"python_script"`
+	Forwarding                types.Bool   `tfsdk:"forwarding"`
+	RegDHCP                   types.Bool   `tfsdk:"regdhcp"`
+	RegDHCPStatic             types.Bool   `tfsdk:"regdhcpstatic"`
+	RegOpenVPNClients         types.Bool   `tfsdk:"regovpnclients"`
+	CustomOptions             types.String `tfsdk:"custom_options"`
+}
+
+func NewServicesDNSResolverSettingsResource() resource.Resource {
+	return &servicesDNSResolverSettingsResource{}
+}
+
+func (r *servicesDNSResolverSettingsResource) Metadata(_ context.Context, _ resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = "pfsense_services_dns_resolver_settings"
+}
+
+func (r *servicesDNSResolverSettingsResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	r.client = resourceClient(ctx, req, resp)
+}
+
+func (r *servicesDNSResolverSettingsResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		Description: "Manages DNS Resolver settings (a singleton).",
+		Attributes: map[string]schema.Attribute{
+			"id":                            computedIDAttribute(),
+			"enable":                        optionalBoolAttribute("Enable the DNS Resolver service."),
+			"port":                          optionalStringAttribute("DNS Resolver listening port."),
+			"enablessl":                     optionalBoolAttribute("Enable DNS over TLS service."),
+			"sslcertref":                    requiredStringAttribute("Certificate reference used by DNS over TLS."),
+			"tlsport":                       optionalStringAttribute("DNS over TLS listening port."),
+			"active_interface":              optionalStringListAttribute("Interfaces on which the DNS Resolver accepts queries."),
+			"outgoing_interface":            optionalStringListAttribute("Interfaces used for outgoing DNS queries."),
+			"strictout":                     optionalBoolAttribute("Only use the selected outgoing interfaces."),
+			"system_domain_local_zone_type": enumAttribute("Local zone type for the system domain.", "deny", "refuse", "static", "transparent", "typetransparent", "redirect", "inform", "inform_deny", "nodefault"),
+			"dnssec":                        optionalBoolAttribute("Enable DNSSEC validation."),
+			"python":                        optionalBoolAttribute("Enable the Unbound Python module."),
+			"python_order":                  enumAttribute("Order in which the Python module runs.", "pre_validator", "post_validator"),
+			"python_script":                 optionalStringAttribute("Unbound Python module script."),
+			"forwarding":                    optionalBoolAttribute("Enable DNS forwarding mode."),
+			"regdhcp":                       optionalBoolAttribute("Register DHCP leases in the DNS Resolver."),
+			"regdhcpstatic":                 optionalBoolAttribute("Register DHCP static mappings in the DNS Resolver."),
+			"regovpnclients":                optionalBoolAttribute("Register OpenVPN clients in the DNS Resolver."),
+			"custom_options":                optionalStringAttribute("Custom Unbound configuration options."),
+		},
+	}
+}
+
+func (r *servicesDNSResolverSettingsResource) payload(m servicesDNSResolverSettingsModel) map[string]any {
+	p := map[string]any{}
+	setBool(p, "enable", m.Enable)
+	setString(p, "port", m.Port)
+	setBool(p, "enablessl", m.EnableSSL)
+	setString(p, "sslcertref", m.SSLCertRef)
+	setString(p, "tlsport", m.TLSPort)
+	setStringList(p, "active_interface", m.ActiveInterface)
+	setStringList(p, "outgoing_interface", m.OutgoingInterface)
+	setBool(p, "strictout", m.StrictOut)
+	setString(p, "system_domain_local_zone_type", m.SystemDomainLocalZoneType)
+	setBool(p, "dnssec", m.DNSSEC)
+	setBool(p, "python", m.Python)
+	setString(p, "python_order", m.PythonOrder)
+	setString(p, "python_script", m.PythonScript)
+	setBool(p, "forwarding", m.Forwarding)
+	setBool(p, "regdhcp", m.RegDHCP)
+	setBool(p, "regdhcpstatic", m.RegDHCPStatic)
+	setBool(p, "regovpnclients", m.RegOpenVPNClients)
+	setString(p, "custom_options", m.CustomOptions)
+	return p
+}
+
+func (r *servicesDNSResolverSettingsResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan servicesDNSResolverSettingsModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	if _, err := r.client.Update(ctx, servicesDNSResolverSettingsPath, applyNow(r.payload(plan))); err != nil {
+		resp.Diagnostics.AddError("failed to set DNS Resolver settings", err.Error())
+		return
+	}
+	plan.ID = types.StringValue("system")
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *servicesDNSResolverSettingsResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state servicesDNSResolverSettingsModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	raw, err := r.client.Get(ctx, servicesDNSResolverSettingsPath, nil)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to read DNS Resolver settings", err.Error())
+		return
+	}
+	obj, err := decodeObject(raw)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to decode DNS Resolver settings", err.Error())
+		return
+	}
+	state.ID = types.StringValue("system")
+	state.Enable = boolValue(getBool(obj, "enable"))
+	state.Port = strValue(getString(obj, "port"))
+	state.EnableSSL = boolValue(getBool(obj, "enablessl"))
+	state.SSLCertRef = strValue(getString(obj, "sslcertref"))
+	state.TLSPort = strValue(getString(obj, "tlsport"))
+	state.ActiveInterface = strListValue(ctx, getStringSlice(obj, "active_interface"))
+	state.OutgoingInterface = strListValue(ctx, getStringSlice(obj, "outgoing_interface"))
+	state.StrictOut = boolValue(getBool(obj, "strictout"))
+	state.SystemDomainLocalZoneType = strValue(getString(obj, "system_domain_local_zone_type"))
+	state.DNSSEC = boolValue(getBool(obj, "dnssec"))
+	state.Python = boolValue(getBool(obj, "python"))
+	state.PythonOrder = strValue(getString(obj, "python_order"))
+	state.PythonScript = strValue(getString(obj, "python_script"))
+	state.Forwarding = boolValue(getBool(obj, "forwarding"))
+	state.RegDHCP = boolValue(getBool(obj, "regdhcp"))
+	state.RegDHCPStatic = boolValue(getBool(obj, "regdhcpstatic"))
+	state.RegOpenVPNClients = boolValue(getBool(obj, "regovpnclients"))
+	state.CustomOptions = strValue(getString(obj, "custom_options"))
+	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+func (r *servicesDNSResolverSettingsResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan servicesDNSResolverSettingsModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() || r.client == nil {
+		return
+	}
+	if _, err := r.client.Update(ctx, servicesDNSResolverSettingsPath, applyNow(r.payload(plan))); err != nil {
+		resp.Diagnostics.AddError("failed to update DNS Resolver settings", err.Error())
+		return
+	}
+	plan.ID = types.StringValue("system")
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *servicesDNSResolverSettingsResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	// DNS Resolver settings cannot be deleted; removal from state is sufficient.
+}
+
+// ImportState adopts the settings already on the box. Singletons have a fixed
+// identifier, so the import ID is always `system`.
+func (r *servicesDNSResolverSettingsResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	if req.ID != "system" {
+		resp.Diagnostics.AddError("invalid DNS Resolver settings import ID", "The import ID must be `system`.")
+		return
+	}
+	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+// ---------------------------------------------------------------------------
 // pfsense_services_ntp_settings (singleton)
 // ---------------------------------------------------------------------------
 

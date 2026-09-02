@@ -3,7 +3,7 @@
 This file tracks coverage against the pfSense REST API v2
 (`pfrest/pfSense-pkg-RESTAPI` v2.10.0).
 
-## Implemented — 62 resources + 4 data sources
+## Implemented — 63 resources + 4 data sources
 
 | Terraform resource | API model | ID strategy |
 | --- | --- | --- |
@@ -34,6 +34,7 @@ This file tracks coverage against the pfSense REST API v2
 | `pfsense_services_dns_resolver_host_override` | `DNSResolverHostOverride` | composite: `host` + `domain` |
 | `pfsense_services_dns_resolver_host_override_alias` | `DNSResolverHostOverrideAlias` | parent host/domain + `host` |
 | `pfsense_services_dns_resolver_domain_override` | `DNSResolverDomainOverride` | natural key: `domain` |
+| `pfsense_services_dns_resolver_settings` | `DNSResolverSettings` | singleton |
 | `pfsense_services_dns_forwarder_host_override` | `DNSForwarderHostOverride` | composite: `host` + `domain` |
 | `pfsense_services_dns_forwarder_host_override_alias` | `DNSForwarderHostOverrideAlias` | parent host/domain + `host` |
 | `pfsense_services_ntp_settings` | `NTPSettings` | singleton |

@@ -128,6 +128,7 @@ func (p *pfsenseProvider) Resources(_ context.Context) []func() resource.Resourc
 		NewRoutingStaticRouteResource,
 		NewDHCPServerResource,
 		NewDNSResolverHostOverrideResource,
+		NewServicesDNSResolverSettingsResource,
 		NewSystemUserResource,
 		NewSystemGroupResource,
 		NewSystemCAResource,

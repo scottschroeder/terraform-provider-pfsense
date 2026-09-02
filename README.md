@@ -9,7 +9,7 @@ release **v2.10.0**) which exposes 200+ endpoints under `/api/v2`.
 
 ## Status
 
-Code-complete: **62 resources + 4 data sources** covering firewall, NAT,
+Code-complete: **63 resources + 4 data sources** covering firewall, NAT,
 interfaces, routing, services (DHCP/DNS/NTP/cron/BIND/FreeRADIUS), system, and
 VPN (IPsec/OpenVPN/WireGuard). Every resource has an acceptance test that runs
 against an in-process mock server (no pfSense required).
@@ -74,7 +74,7 @@ resource "pfsense_system_user" "deploy" {
 
 See [`examples/`](examples/) for more.
 
-## Resources (62)
+## Resources (63)
 
 Firewall:
 
@@ -114,6 +114,7 @@ Services (DHCP / DNS / NTP / misc):
 - `pfsense_services_dns_resolver_host_override`
 - `pfsense_services_dns_resolver_host_override_alias`
 - `pfsense_services_dns_resolver_domain_override`
+- `pfsense_services_dns_resolver_settings`
 - `pfsense_services_dns_forwarder_host_override`
 - `pfsense_services_dns_forwarder_host_override_alias`
 - `pfsense_services_ntp_settings`
