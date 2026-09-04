@@ -17,6 +17,12 @@ against an in-process mock server (no pfSense required).
 Live acceptance testing against a pfSense CE 2.8.1 VM is the final milestone —
 see [`docs/COVERAGE.md`](docs/COVERAGE.md) for the roadmap and current status.
 
+Mutating resource operations are serialized within each configured provider
+instance, including the natural-key and parent lookups that precede a write.
+pfSense rewrites shared configuration state during mutations and uses mutable
+array indexes as many object IDs, so overlapping operations can otherwise lose
+updates or target the wrong object. Read operations remain concurrent.
+
 ## Requirements
 
 - [Go](https://go.dev/) 1.26+

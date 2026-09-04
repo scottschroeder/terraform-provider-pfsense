@@ -3,9 +3,13 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -210,6 +214,140 @@ func TestClientGetDecodesObject(t *testing.T) {
 	}
 	if obj["name"] != "webservers" || obj["type"] != "host" {
 		t.Errorf("unexpected object: %v", obj)
+	}
+}
+
+func TestClientSerializesMutations(t *testing.T) {
+	var active atomic.Int64
+	var overlap atomic.Bool
+	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if active.Add(1) > 1 {
+			overlap.Store(true)
+		}
+		time.Sleep(10 * time.Millisecond)
+		active.Add(-1)
+		writeJSON(t, w, http.StatusOK, envelope(map[string]any{"id": 1}))
+	})
+	c, err := New(Config{URL: srv.URL, APIKey: "k"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const workers = 12
+	start := make(chan struct{})
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			ctx := context.Background()
+			var callErr error
+			switch i % 4 {
+			case 0:
+				_, callErr = c.Create(ctx, "/api/v2/test", map[string]any{"id": i})
+			case 1:
+				_, callErr = c.Update(ctx, "/api/v2/test", map[string]any{"id": i})
+			case 2:
+				callErr = c.Delete(ctx, "/api/v2/test", Query{}.Set("id", fmt.Sprint(i)))
+			case 3:
+				callErr = c.Apply(ctx, "/api/v2/test/apply", nil)
+			}
+			errs <- callErr
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if overlap.Load() {
+		t.Fatal("mutation requests overlapped")
+	}
+}
+
+func TestClientAllowsReadsDuringMutation(t *testing.T) {
+	mutationStarted := make(chan struct{})
+	releaseMutation := make(chan struct{})
+	readStarted := make(chan struct{})
+	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			close(mutationStarted)
+			<-releaseMutation
+			writeJSON(t, w, http.StatusOK, envelope(map[string]any{"id": 1}))
+			return
+		}
+		close(readStarted)
+		writeJSON(t, w, http.StatusOK, envelope(map[string]any{"id": 1}))
+	})
+	c, err := New(Config{URL: srv.URL, APIKey: "k"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mutationDone := make(chan error, 1)
+	go func() {
+		_, err := c.Create(context.Background(), "/api/v2/test", map[string]any{"id": 1})
+		mutationDone <- err
+	}()
+	<-mutationStarted
+
+	readDone := make(chan error, 1)
+	go func() {
+		_, err := c.Get(context.Background(), "/api/v2/test", nil)
+		readDone <- err
+	}()
+	select {
+	case <-readStarted:
+	case <-time.After(time.Second):
+		close(releaseMutation)
+		t.Fatal("read was blocked by an in-flight mutation")
+	}
+	close(releaseMutation)
+	if err := <-mutationDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-readDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestClientMutationWaitHonorsContext(t *testing.T) {
+	mutationStarted := make(chan struct{})
+	releaseMutation := make(chan struct{})
+	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		close(mutationStarted)
+		<-releaseMutation
+		writeJSON(t, w, http.StatusOK, envelope(map[string]any{"id": 1}))
+	})
+	c, err := New(Config{URL: srv.URL, APIKey: "k"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := c.Create(context.Background(), "/api/v2/test", map[string]any{"id": 1})
+		firstDone <- err
+	}()
+	<-mutationStarted
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, err = c.Update(ctx, "/api/v2/test", map[string]any{"id": 1})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		close(releaseMutation)
+		t.Fatalf("queued mutation error = %v, want context deadline exceeded", err)
+	}
+
+	close(releaseMutation)
+	if err := <-firstDone; err != nil {
+		t.Fatal(err)
 	}
 }
 

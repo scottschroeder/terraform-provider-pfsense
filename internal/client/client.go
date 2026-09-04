@@ -56,13 +56,16 @@ type Config struct {
 
 // Client is a thread-safe HTTP client for the pfSense REST API v2.
 type Client struct {
-	cfg      Config
-	http     *http.Client
-	baseURL  *url.URL
-	jwtMu    sync.Mutex
-	jwtToken string
-	jwtAt    time.Time
+	cfg          Config
+	http         *http.Client
+	baseURL      *url.URL
+	mutationGate chan struct{}
+	jwtMu        sync.Mutex
+	jwtToken     string
+	jwtAt        time.Time
 }
+
+type mutationContextKey struct{}
 
 // New constructs a Client from cfg. It validates and normalises the base URL.
 func New(cfg Config) (*Client, error) {
@@ -81,10 +84,13 @@ func New(cfg Config) (*Client, error) {
 	if cfg.SkipTLSVerify {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // opt-in via provider config
 	}
+	mutationGate := make(chan struct{}, 1)
+	mutationGate <- struct{}{}
 	return &Client{
-		cfg:     cfg,
-		baseURL: baseURL,
-		http:    &http.Client{Timeout: timeout, Transport: transport},
+		cfg:          cfg,
+		baseURL:      baseURL,
+		http:         &http.Client{Timeout: timeout, Transport: transport},
+		mutationGate: mutationGate,
 	}, nil
 }
 
@@ -145,12 +151,45 @@ func (q Query) Add(key, value string) Query {
 // Encode returns the URL-encoded query string ("" when empty).
 func (q Query) Encode() string { return (url.Values)(q).Encode() }
 
+// BeginMutation acquires this client's context-aware mutation gate. The
+// returned context marks ownership so nested mutation requests do not attempt
+// to reacquire the gate. The release function is safe to call more than once.
+func (c *Client) BeginMutation(ctx context.Context) (context.Context, func(), error) {
+	if owner, ok := ctx.Value(mutationContextKey{}).(*Client); ok && owner == c {
+		return ctx, func() {}, nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx, nil, fmt.Errorf("waiting for pfSense mutation gate: %w", ctx.Err())
+	case <-c.mutationGate:
+	}
+
+	var once sync.Once
+	release := func() {
+		once.Do(func() { c.mutationGate <- struct{}{} })
+	}
+	return context.WithValue(ctx, mutationContextKey{}, c), release, nil
+}
+
 // Do performs an HTTP request against path with optional query params and a
 // JSON body (nil body -> no body). It returns the decoded envelope. A nil
 // body with a non-2xx envelope returns an *APIError. JWT auth is handled
 // transparently: an expired/invalid token is re-issued once and the request
 // retried.
 func (c *Client) Do(ctx context.Context, method, path string, query Query, body any) (*Response, error) {
+	// Direct mutation calls participate in the same gate as complete Terraform
+	// resource mutations. A context marked by BeginMutation already owns it.
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		mutationCtx, release, err := c.BeginMutation(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+		ctx = mutationCtx
+	}
+
 	reqURL := *c.baseURL
 	reqURL.Path = strings.TrimSuffix(c.baseURL.Path, "/") + "/" + strings.TrimPrefix(path, "/")
 	if len(query) > 0 {
@@ -172,7 +211,7 @@ func (c *Client) Do(ctx context.Context, method, path string, query Query, body 
 		if c.cfg.UseJWT && c.isAuthError(err) {
 			tflog.Debug(ctx, "JWT may have expired; refreshing and retrying", map[string]any{"path": path})
 			c.invalidateJWT()
-			if jerr := c.issueJWT(ctx); jerr != nil {
+			if _, jerr := c.jwt(ctx); jerr != nil {
 				return nil, jerr
 			}
 			resp, err = c.doOnce(ctx, method, reqURL.String(), bodyBytes)

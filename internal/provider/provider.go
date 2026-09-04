@@ -118,7 +118,7 @@ func (p *pfsenseProvider) Configure(ctx context.Context, req provider.ConfigureR
 
 // Resources returns the resources supported by the provider.
 func (p *pfsenseProvider) Resources(_ context.Context) []func() resource.Resource {
-	return []func() resource.Resource{
+	constructors := []func() resource.Resource{
 		NewFirewallAliasResource,
 		NewFirewallRuleResource,
 		NewFirewallScheduleResource,
@@ -192,6 +192,7 @@ func (p *pfsenseProvider) Resources(_ context.Context) []func() resource.Resourc
 		NewUserAuthServerResource,
 		NewSystemRESTAPIAccessListEntryResource,
 	}
+	return serializeResourceConstructors(constructors)
 }
 
 // DataSources returns the data sources supported by the provider.
