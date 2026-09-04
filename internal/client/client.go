@@ -178,6 +178,20 @@ func (c *Client) BeginMutation(ctx context.Context) (context.Context, func(), er
 // transparently: an expired/invalid token is re-issued once and the request
 // retried.
 func (c *Client) Do(ctx context.Context, method, path string, query Query, body any) (*Response, error) {
+	// Applying a mutation asynchronously allows its background dispatcher to
+	// outlive this request and race with the next mutation. Default every apply
+	// request to synchronous unless the caller explicitly overrides it.
+	if values := (url.Values)(query); values.Get("apply") == "true" && !values.Has("async") {
+		values.Set("async", "false")
+	}
+	if values, ok := body.(map[string]any); ok {
+		if apply, _ := values["apply"].(bool); apply {
+			if _, configured := values["async"]; !configured {
+				values["async"] = false
+			}
+		}
+	}
+
 	// Direct mutation calls participate in the same gate as complete Terraform
 	// resource mutations. A context marked by BeginMutation already owns it.
 	switch method {
@@ -450,6 +464,13 @@ func (c *Client) Delete(ctx context.Context, path string, query Query) error {
 // the running system (e.g. /api/v2/firewall/apply). Some resources apply
 // immediately and do not require this.
 func (c *Client) Apply(ctx context.Context, path string, body any) error {
+	if body == nil {
+		body = map[string]any{"async": false}
+	} else if values, ok := body.(map[string]any); ok {
+		if _, configured := values["async"]; !configured {
+			values["async"] = false
+		}
+	}
 	_, err := c.Do(ctx, http.MethodPost, path, nil, body)
 	return err
 }

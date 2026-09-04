@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"github.com/elacy/terraform-provider-pfsense/v2/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -99,6 +101,28 @@ func (r *dhcpStaticMappingResource) Schema(_ context.Context, _ resource.SchemaR
 
 func (r *dhcpStaticMappingResource) key(iface, mac string) string { return iface + "|" + mac }
 
+func (r *dhcpStaticMappingResource) waitUntilCreated(ctx context.Context, parentID, mac string) error {
+	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		_, _, found, err := findByKeyInParent(waitCtx, r.client, dhcpStaticMappingPlural, parentID, "mac", mac)
+		if err != nil {
+			return err
+		}
+		if found {
+			return nil
+		}
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("waiting for DHCP static mapping %s to become visible: %w", mac, waitCtx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
 func (r *dhcpStaticMappingResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan dhcpStaticMappingModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -128,6 +152,10 @@ func (r *dhcpStaticMappingResource) Create(ctx context.Context, req resource.Cre
 	setString(payload, "descr", plan.Descr)
 	if _, err := r.client.Create(ctx, dhcpStaticMappingSingular, applyNow(payload)); err != nil {
 		resp.Diagnostics.AddError("failed to create DHCP static mapping", err.Error())
+		return
+	}
+	if err := r.waitUntilCreated(ctx, formatID(pid), plan.MAC.ValueString()); err != nil {
+		resp.Diagnostics.AddError("failed to verify DHCP static mapping creation", err.Error())
 		return
 	}
 	plan.ID = types.StringValue(r.key(iface, plan.MAC.ValueString()))

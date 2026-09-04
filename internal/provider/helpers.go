@@ -375,12 +375,13 @@ func setStringSet(m map[string]any, key string, v types.Set) {
 // Response decoding helpers.
 // ---------------------------------------------------------------------------
 
-// applyNow marks a request payload to apply changes immediately (the API's
-// `apply` control parameter). Models that always apply ignore it; models that
-// defer changes (firewall, interfaces, routing, dhcp, dns, vpn) reload the
-// relevant subsystem on mutation.
+// applyNow marks a request payload to apply changes immediately and
+// synchronously. The API defaults apply dispatchers to async=true; allowing a
+// mutation to return while its dispatcher is still running can race with the
+// next mutation and overwrite shared pfSense configuration state.
 func applyNow(m map[string]any) map[string]any {
 	m["apply"] = true
+	m["async"] = false
 	return m
 }
 

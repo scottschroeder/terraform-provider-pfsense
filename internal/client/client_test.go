@@ -145,6 +145,47 @@ func TestClientJWTRefreshOn401(t *testing.T) {
 	}
 }
 
+func TestClientForcesSynchronousApply(t *testing.T) {
+	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/create":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode create body: %v", err)
+			}
+			if body["async"] != false {
+				t.Errorf("create async = %#v, want false", body["async"])
+			}
+		case "/delete":
+			if got := r.URL.Query().Get("async"); got != "false" {
+				t.Errorf("delete async = %q, want false", got)
+			}
+		case "/apply":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode apply body: %v", err)
+			}
+			if body["async"] != false {
+				t.Errorf("apply async = %#v, want false", body["async"])
+			}
+		}
+		writeJSON(t, w, http.StatusOK, envelope(map[string]any{"id": 1}))
+	})
+	c, err := New(Config{URL: srv.URL, APIKey: "k"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Create(context.Background(), "/create", map[string]any{"apply": true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Delete(context.Background(), "/delete", Query{}.Set("apply", "true")); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Apply(context.Background(), "/apply", nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestClientAPIError(t *testing.T) {
 	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(t, w, 422, map[string]any{
